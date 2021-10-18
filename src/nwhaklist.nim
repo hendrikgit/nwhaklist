@@ -1,11 +1,24 @@
-import os, streams
-import neverwinter/[erf, gff, resman]
+import os, std/sha1, sequtils, streams
+import neverwinter/[compressedbuf, erf, exo, gff, resman]
 
-if paramCount() != 1:
-  echo "Required parameter: module file"
+proc writeModule
+proc writeErfWithChanges(erf: Erf, io: Stream, replace: tuple[rr: ResRef, gff: GffRoot])
+
+let usage = """Parameters:
+  module file (has to be first parameter)
+  one of the commands: list, del
+  when using the command "del" it has to be followed by the name of a hak (without extension)"""
+
+if (paramCount() < 2 or paramCount() > 3) or
+(paramCount() == 2 and paramStr(2) != "list") or
+(paramCount() == 3 and paramStr(2) != "del"):
+  echo usage
   quit(QuitFailure)
 
-let moduleFn = paramStr(1)
+let
+  moduleFn = paramStr(1)
+  cmd = paramStr(2)
+  hakname = if paramCount() == 3: paramStr(3) else: ""
 
 let strm =
   try: moduleFn.openFileStream
@@ -16,7 +29,6 @@ let strm =
 let module =
   try: strm.readErf
   except:
-    strm.close
     echo "Error reading the ERF data from: " & moduleFn
     echo "Make sure it is a valid NWN module"
     quit(QuitFailure)
@@ -37,7 +49,51 @@ let modifo =
     quit(QuitFailure)
 
 let haklist = modifo["Mod_HakList", GffList]
-for hak in haklist:
-  echo hak["Mod_Hak", GffCExoString]
 
-strm.close
+case cmd:
+  of "list":
+    echo "HAKs in list: " & $haklist.len
+    for hak in haklist:
+      echo hak["Mod_Hak", GffCExoString]
+  of "del":
+    let newhaklist = haklist.filterIt(it["Mod_Hak", GffCExoString] != hakname)
+    if newhaklist.len < haklist.len:
+      modifo["Mod_HakList", GffList] = newhaklist
+      writeModule()
+  else:
+    echo "Unrecognized command"
+
+proc writeModule =
+  echo "Writing module with changed haklist"
+  let (dir, name, ext) = splitFile(moduleFn)
+  let tempFn = joinPath(dir, name & ext & ".nwhaklist.temp")
+  let strm =
+    try: openFileStream(tempFn, fmWrite)
+    except:
+      echo "Error opening temporary module file for writing: " & tempFn
+      quit(QuitFailure)
+  writeErfWithChanges(module, strm, (rrmodifo, modifo))
+  moveFile(tempFn, moduleFn)
+
+proc writeErfWithChanges(erf: Erf, io: Stream, replace: tuple[rr: ResRef, gff: GffRoot]) =
+  writeErf(
+    io = io,
+    fileType = erf.fileType,
+    fileVersion = ErfVersion.E1,
+    exocomp = ExoResFileCompressionType.None,
+    compalg = Algorithm.None,
+    locStrings = erf.locStrings,
+    strRef = erf.strRef,
+    entries = toSeq(erf.contents),
+    writer = proc (rr: ResRef, io: Stream): (int, SecureHash) =
+      let data =
+        if rr == replace.rr:
+          let strm = newStringStream()
+          strm.write(replace.gff)
+          strm.setPosition(0)
+          strm.readAll
+        else:
+          erf.demand(rr).readAll
+      io.write(data)
+      (data.len, secureHash(data))
+  )
