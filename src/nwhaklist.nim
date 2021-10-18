@@ -1,4 +1,4 @@
-import os, std/sha1, sequtils, streams
+import os, sequtils, std/sha1, std/strutils, streams
 import neverwinter/[compressedbuf, erf, exo, gff, resman]
 
 proc writeModule
@@ -6,22 +6,36 @@ proc writeErfWithChanges(erf: Erf, io: Stream, replace: tuple[rr: ResRef, gff: G
 
 let usage = """Parameters:
   module file (has to be first parameter)
-  one of the commands: list, add, del
-  when using the command "add" or "del" it has to be followed by the name of a hak (without extension)"""
+  then one of the commands:
+    list
+    add hakname (position)
+    del hakname
+  when using the command "add" or "del" it has to be followed by the name of a hak (without extension)
+  for "add" an optional position can be provided after the name of the hak, default is the end of the list"""
 
-if (paramCount() < 2 or paramCount() > 3) or
+if (paramCount() < 2 or paramCount() > 4) or
 (paramCount() == 2 and paramStr(2) != "list") or
-(paramCount() == 3 and (paramStr(2) != "add" and paramStr(2) != "del")):
+(paramCount() == 3 and (paramStr(2) != "add" and paramStr(2) != "del")) or
+(paramCount() == 4 and paramStr(2) != "add") :
   echo usage
   quit(QuitFailure)
 
 let
   moduleFn = paramStr(1)
   cmd = paramStr(2)
-  hakname = if paramCount() == 3: paramStr(3) else: ""
+  hakname = if paramCount() >= 3: paramStr(3) else: ""
+  pos =
+    if paramCount() == 4:
+      try: paramStr(4).parseInt
+      except ValueError: -1
+    else: -1
 
 if cmd in ["add", "del"] and hakname == "":
   echo "Name of the hak can not be empty"
+  quit(QuitFailure)
+
+if paramCount() == 4 and pos < 1:
+  echo "Position has to be >= 1"
   quit(QuitFailure)
 
 let strm =
@@ -57,8 +71,9 @@ var haklist = modifo["Mod_HakList", @[].GffList]
 case cmd:
   of "list":
     echo "HAKs in list: " & $haklist.len
-    for hak in haklist:
-      echo hak["Mod_Hak", GffCExoString]
+    let poswidth = ($haklist.len).len
+    for idx, hak in haklist:
+      echo align($(idx + 1), poswidth) & ": " & hak["Mod_Hak", GffCExoString]
   of "del":
     let newhaklist = haklist.filterIt(it["Mod_Hak", GffCExoString] != hakname)
     if newhaklist.len < haklist.len:
@@ -66,9 +81,10 @@ case cmd:
       writeModule()
   of "add":
     if hakname notin haklist.mapIt(it["Mod_Hak", GffCExoString]):
+      let insertpos = if pos < 1 or pos > haklist.len: haklist.len else: pos - 1
       let newhak = newGffStruct(8)
       newhak.putValue("Mod_Hak", GffCExoString, hakname)
-      haklist &= newhak
+      haklist.insert(newhak, insertpos)
       modifo["Mod_HakList", GffList] = haklist
       writeModule()
   else:
