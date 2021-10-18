@@ -6,12 +6,12 @@ proc writeErfWithChanges(erf: Erf, io: Stream, replace: tuple[rr: ResRef, gff: G
 
 let usage = """Parameters:
   module file (has to be first parameter)
-  one of the commands: list, del
-  when using the command "del" it has to be followed by the name of a hak (without extension)"""
+  one of the commands: list, add, del
+  when using the command "add" or "del" it has to be followed by the name of a hak (without extension)"""
 
 if (paramCount() < 2 or paramCount() > 3) or
 (paramCount() == 2 and paramStr(2) != "list") or
-(paramCount() == 3 and paramStr(2) != "del"):
+(paramCount() == 3 and (paramStr(2) != "add" and paramStr(2) != "del")):
   echo usage
   quit(QuitFailure)
 
@@ -19,6 +19,10 @@ let
   moduleFn = paramStr(1)
   cmd = paramStr(2)
   hakname = if paramCount() == 3: paramStr(3) else: ""
+
+if cmd in ["add", "del"] and hakname == "":
+  echo "Name of the hak can not be empty"
+  quit(QuitFailure)
 
 let strm =
   try: moduleFn.openFileStream
@@ -48,7 +52,7 @@ let modifo =
     echo "Error reading module.ifo"
     quit(QuitFailure)
 
-let haklist = modifo["Mod_HakList", GffList]
+var haklist = modifo["Mod_HakList", @[].GffList]
 
 case cmd:
   of "list":
@@ -59,6 +63,13 @@ case cmd:
     let newhaklist = haklist.filterIt(it["Mod_Hak", GffCExoString] != hakname)
     if newhaklist.len < haklist.len:
       modifo["Mod_HakList", GffList] = newhaklist
+      writeModule()
+  of "add":
+    if hakname notin haklist.mapIt(it["Mod_Hak", GffCExoString]):
+      let newhak = newGffStruct(8)
+      newhak.putValue("Mod_Hak", GffCExoString, hakname)
+      haklist &= newhak
+      modifo["Mod_HakList", GffList] = haklist
       writeModule()
   else:
     echo "Unrecognized command"
