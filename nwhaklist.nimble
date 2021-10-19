@@ -8,5 +8,5 @@ bin           = @["nwhaklist"]
 
 
 # Dependencies
-requires "nim >= 1.4.8"
+requires "nim >= 1.6.0"
 requires "neverwinter == 1.4.5"
