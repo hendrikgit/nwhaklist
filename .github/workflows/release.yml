@@ -1,0 +1,143 @@
+name: Create a release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    env:
+      NIMVER: "1.6.0"
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            zipname: linux
+          - os: macos-latest
+            zipname: macos
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Cache choosenim, nimble
+      # nim is installed to .nimble/bin/nim by choosenim
+        uses: actions/cache@v2
+        id: cache
+        with:
+          key: build-${{ runner.os }}-nim-${{ env.NIMVER }}
+          path: |
+            ~/.choosenim
+            ~/.nimble
+
+      - name: Install apt packages
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y --no-install-recommends mingw-w64
+
+      - name: Download and setup nim, nimble
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl https://nim-lang.org/choosenim/init.sh -o choosenim-init.sh
+          sh choosenim-init.sh -y
+          PATH="~/.nimble/bin:$PATH" choosenim $NIMVER
+
+      - name: Install nimble packages (dependencies)
+        run: PATH="~/.nimble/bin:$PATH" nimble install --depsOnly -y
+
+      - name: Compile (Linux, macOS)
+        run: PATH="~/.nimble/bin:$PATH" nimble build -d:release
+
+      - name: Compile for Windows
+        if: matrix.os == 'ubuntu-latest'
+        run: PATH="~/.nimble/bin:$PATH" nimble build -d:release -d:mingw
+
+      - name: Upload artifact (Linux, macOS)
+        uses: actions/upload-artifact@v2
+        with:
+          name: nwhaklist.${{ matrix.zipname }}
+          path: nwhaklist
+
+      - name: Upload Windows artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v2
+        with:
+          name: nwhaklist.windows
+          path: nwhaklist.exe
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: nwhaklist.linux
+
+      - name: Zip and chmod Linux artifact
+        # the executable flag is removed on artifact upload
+        run: |
+          chmod +x nwhaklist
+          zip nwhaklist.linux.zip nwhaklist
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: nwhaklist.macos
+
+      - name: Zip and chmod macOS artifact
+        # the executable flag is removed on artifact upload
+        run: |
+          chmod +x nwhaklist
+          zip nwhaklist.macos.zip nwhaklist
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: nwhaklist.windows
+
+      - name: Zip Windows artifact
+        run: zip nwhaklist.windows.zip nwhaklist.exe
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: nwhaklist.linux.zip
+          asset_name: nwhaklist.linux.zip
+          asset_content_type: application/zip
+
+      - name: Upload macOS release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: nwhaklist.macos.zip
+          asset_name: nwhaklist.macos.zip
+          asset_content_type: application/zip
+
+      - name: Upload Windows release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: nwhaklist.windows.zip
+          asset_name: nwhaklist.windows.zip
+          asset_content_type: application/zip
