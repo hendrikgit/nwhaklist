@@ -1,5 +1,5 @@
 # Package
-version       = "0.1.0"
+version       = "0.1.1"
 author        = "Hendrik Albers"
 description   = "Show or modify the hak list of a Neverwinter Nights module"
 license       = "MIT"
