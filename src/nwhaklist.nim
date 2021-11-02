@@ -106,7 +106,7 @@ proc writeErfWithChanges(erf: Erf, io: Stream, replace: tuple[rr: ResRef, gff: G
   writeErf(
     io = io,
     fileType = erf.fileType,
-    fileVersion = ErfVersion.E1,
+    fileVersion = ErfVersion.V1,
     exocomp = ExoResFileCompressionType.None,
     compalg = Algorithm.None,
     locStrings = erf.locStrings,
